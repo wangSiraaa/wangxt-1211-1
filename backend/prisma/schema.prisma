@@ -1,0 +1,301 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ENTERPRISE
+  VERIFIER
+  ADMIN
+}
+
+enum EnergyType {
+  COAL
+  OIL
+  NATURAL_GAS
+  ELECTRICITY
+  STEAM
+  OTHER
+}
+
+enum VerificationStatus {
+  PENDING
+  IN_PROGRESS
+  VERIFIED
+  REJECTED
+  ADJUSTED
+}
+
+enum QuotaOperationType {
+  ALLOCATION
+  DEDUCTION
+  TRANSFER_IN
+  TRANSFER_OUT
+  CARRY_OVER
+  ROLLBACK
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  SUBMIT
+  VERIFY
+  ADJUST
+  LOCK
+  CARRY_OVER
+}
+
+model User {
+  id            String    @id @default(cuid())
+  username      String    @unique
+  password      String
+  email         String    @unique
+  phone         String?
+  role          UserRole
+  enterpriseId  String?
+  enterprise    Enterprise? @relation(fields: [enterpriseId], references: [id])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  verifications VerificationTask[] @relation("Verifier")
+  auditLogs     AuditLog[]
+}
+
+model Enterprise {
+  id            String   @id @default(cuid())
+  name          String
+  code          String   @unique
+  industry      String
+  address       String
+  contactPerson String
+  contactPhone  String
+  registeredAt  DateTime @default(now())
+  isActive      Boolean  @default(true)
+  users         User[]
+
+  energyConsumptions EnergyConsumption[]
+  productionOutputs  ProductionOutput[]
+  emissionReports    EmissionReport[]
+  quotas             Quota[]
+  baselines          Baseline[]
+}
+
+model EmissionFactor {
+  id          String  @id @default(cuid())
+  energyType  EnergyType @unique
+  factorValue Decimal @db.Decimal(18, 6)
+  unit        String
+  description String?
+  updatedBy   String?
+  updatedAt   DateTime @updatedAt
+}
+
+model EnergyConsumption {
+  id             String     @id @default(cuid())
+  enterpriseId   String
+  enterprise     Enterprise @relation(fields: [enterpriseId], references: [id])
+  year           Int
+  month          Int
+  energyType     EnergyType
+  quantity       Decimal    @db.Decimal(18, 4)
+  unit           String
+  factorValue    Decimal    @db.Decimal(18, 6)
+  emissionAmount Decimal    @db.Decimal(18, 4)
+  voucherNo      String?
+  hasVoucher     Boolean    @default(false)
+  isLocked       Boolean    @default(false)
+  submittedAt    DateTime?
+  createdBy      String
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@unique([enterpriseId, year, month, energyType])
+  @@index([enterpriseId, year, month])
+}
+
+model ProductionOutput {
+  id           String     @id @default(cuid())
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id])
+  year         Int
+  month        Int
+  productName  String
+  quantity     Decimal    @db.Decimal(18, 4)
+  unit         String
+  isLocked     Boolean    @default(false)
+  submittedAt  DateTime?
+  createdBy    String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([enterpriseId, year, month, productName])
+  @@index([enterpriseId, year, month])
+}
+
+model EmissionReport {
+  id                String             @id @default(cuid())
+  enterpriseId      String
+  enterprise        Enterprise         @relation(fields: [enterpriseId], references: [id])
+  year              Int
+  month             Int
+  totalEmission     Decimal            @db.Decimal(18, 4)
+  adjustedEmission  Decimal?           @db.Decimal(18, 4)
+  verifiedEmission  Decimal?           @db.Decimal(18, 4)
+  verificationStatus VerificationStatus @default(PENDING)
+  isLocked          Boolean            @default(false)
+  lockedAt          DateTime?
+  submittedAt       DateTime?
+  verifiedAt        DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  verificationTasks VerificationTask[]
+  adjustments       VerificationAdjustment[]
+
+  @@unique([enterpriseId, year, month])
+  @@index([enterpriseId, year, month])
+  @@index([verificationStatus])
+}
+
+model VerificationTask {
+  id               String           @id @default(cuid())
+  reportId         String
+  report           EmissionReport   @relation(fields: [reportId], references: [id])
+  verifierId       String
+  verifier         User             @relation("Verifier", fields: [verifierId], references: [id])
+  taskName         String
+  samplingMethod   String
+  samplingCount    Int
+  status           VerificationStatus @default(IN_PROGRESS)
+  remark           String?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  evidences VerificationEvidence[]
+}
+
+model VerificationEvidence {
+  id            String           @id @default(cuid())
+  taskId        String
+  task          VerificationTask @relation(fields: [taskId], references: [id])
+  voucherNo     String
+  voucherType   String
+  energyType    EnergyType?
+  reportedValue Decimal          @db.Decimal(18, 4)
+  actualValue   Decimal?         @db.Decimal(18, 4)
+  isComplete    Boolean          @default(true)
+  remark        String?
+  createdAt     DateTime         @default(now())
+
+  adjustment    VerificationAdjustment?
+}
+
+model VerificationAdjustment {
+  id           String         @id @default(cuid())
+  reportId     String
+  report       EmissionReport @relation(fields: [reportId], references: [id])
+  evidenceId   String         @unique
+  evidence     VerificationEvidence @relation(fields: [evidenceId], references: [id])
+  energyType   EnergyType?
+  itemName     String
+  originalValue Decimal        @db.Decimal(18, 4)
+  adjustValue   Decimal        @db.Decimal(18, 4)
+  finalValue    Decimal        @db.Decimal(18, 4)
+  reason        String
+  adjustedBy    String
+  adjustedAt    DateTime       @default(now())
+}
+
+model Baseline {
+  id           String     @id @default(cuid())
+  enterpriseId String
+  enterprise   Enterprise @relation(fields: [enterpriseId], references: [id])
+  year         Int
+  totalEmission Decimal   @db.Decimal(18, 4)
+  quotaAmount  Decimal    @db.Decimal(18, 4)
+  isLocked     Boolean    @default(false)
+  lockedAt     DateTime?
+  approvedBy   String?
+  approvedAt   DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([enterpriseId, year])
+}
+
+model Quota {
+  id             String              @id @default(cuid())
+  enterpriseId   String
+  enterprise     Enterprise          @relation(fields: [enterpriseId], references: [id])
+  year           Int
+  totalAllocation Decimal            @db.Decimal(18, 4)
+  usedAmount     Decimal             @db.Decimal(18, 4) @default(0)
+  carryInAmount  Decimal             @db.Decimal(18, 4) @default(0)
+  carryOutAmount Decimal             @db.Decimal(18, 4) @default(0)
+  balance        Decimal             @db.Decimal(18, 4)
+  isLocked       Boolean             @default(false)
+  lockedAt       DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  operations QuotaOperation[]
+  @@unique([enterpriseId, year])
+}
+
+model QuotaOperation {
+  id              String              @id @default(cuid())
+  quotaId         String
+  quota           Quota               @relation(fields: [quotaId], references: [id])
+  operationType   QuotaOperationType
+  amount          Decimal             @db.Decimal(18, 4)
+  balanceBefore   Decimal             @db.Decimal(18, 4)
+  balanceAfter    Decimal             @db.Decimal(18, 4)
+  relatedYear     Int?
+  referenceNo     String?
+  remark          String?
+  operatorId      String
+  operatedAt      DateTime            @default(now())
+}
+
+model CarryOverRecord {
+  id              String    @id @default(cuid())
+  enterpriseId    String
+  fromYear        Int
+  toYear          Int
+  carryAmount     Decimal   @db.Decimal(18, 4)
+  fromQuotaId     String
+  toQuotaId       String
+  baselineLocked  Boolean   @default(true)
+  operatorId      String
+  operatedAt      DateTime  @default(now())
+  remark          String?
+
+  @@unique([enterpriseId, fromYear, toYear])
+}
+
+model AuditLog {
+  id           String      @id @default(cuid())
+  userId       String
+  user         User        @relation(fields: [userId], references: [id])
+  action       AuditAction
+  entityType   String
+  entityId     String
+  fieldName    String?
+  oldValue     String?
+  newValue     String?
+  detail       String?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime    @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+}

@@ -1,0 +1,20 @@
+{
+  "name": "carbon-accounting",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm --workspace backend run start:dev",
+    "dev:frontend": "npm --workspace frontend run dev",
+    "build:backend": "npm --workspace backend run build",
+    "build:frontend": "npm --workspace frontend run build",
+    "prisma:generate": "npm --workspace backend run prisma:generate",
+    "prisma:migrate": "npm --workspace backend run prisma:migrate",
+    "prisma:seed": "npm --workspace backend run prisma:seed",
+    "prisma:studio": "npm --workspace backend run prisma:studio",
+    "init:all": "npm --workspace backend run init:all"
+  }
+}
