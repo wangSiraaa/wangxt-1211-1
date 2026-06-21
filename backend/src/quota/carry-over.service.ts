@@ -6,7 +6,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { QuotaService } from './quota.service';
-import { AuditAction, Prisma } from '@prisma/client';
+import { AuditAction, Prisma, QuotaOperationType } from '@prisma/client';
 
 @Injectable()
 export class CarryOverService {
@@ -184,7 +184,7 @@ export class CarryOverService {
         tx.quotaOperation.create({
           data: {
             quotaId: fromQuota.id,
-            operationType: 'CARRY_OVER' as any,
+            operationType: QuotaOperationType.CARRY_OVER,
             amount: carryAmount,
             balanceBefore: fromQuota.balance,
             balanceAfter: updatedFromQuota.balance,
@@ -196,7 +196,7 @@ export class CarryOverService {
         tx.quotaOperation.create({
           data: {
             quotaId: toQuota.id,
-            operationType: 'TRANSFER_IN' as any,
+            operationType: QuotaOperationType.TRANSFER_IN,
             amount: carryAmount,
             balanceBefore: toQuota.balance.sub(carryAmount),
             balanceAfter: toQuota.balance,

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { VerificationStatus, AuditAction, Prisma } from '@prisma/client';
+import { VerificationStatus, ReportStatus, AuditAction, Prisma } from '@prisma/client';
 
 @Injectable()
 export class EmissionReportService {
@@ -31,6 +31,7 @@ export class EmissionReportService {
     const updated = await this.prisma.emissionReport.update({
       where: { id: report.id },
       data: {
+        status: ReportStatus.SUBMITTED,
         verificationStatus: VerificationStatus.PENDING,
         submittedAt: new Date(),
       },

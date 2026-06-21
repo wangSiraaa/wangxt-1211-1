@@ -13,12 +13,25 @@ export class EnterpriseService {
   async create(data: {
     name: string;
     code: string;
-    industry: string;
-    address: string;
-    contactPerson: string;
-    contactPhone: string;
+    industry?: string;
+    address?: string;
+    contact?: string;
+    phone?: string;
+    contactPerson?: string;
+    contactPhone?: string;
   }) {
-    const enterprise = await this.prisma.enterprise.create({ data });
+    const enterprise = await this.prisma.enterprise.create({
+      data: {
+        name: data.name,
+        code: data.code,
+        industry: data.industry,
+        address: data.address,
+        contact: data.contact || data.contactPerson,
+        phone: data.phone || data.contactPhone,
+        contactPerson: data.contactPerson || data.contact,
+        contactPhone: data.contactPhone || data.phone,
+      },
+    });
     return enterprise;
   }
 

@@ -14,7 +14,7 @@ export class AuthService {
   async validateUser(username: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { username } });
     if (!user) throw new UnauthorizedException('用户名或密码错误');
-    const isMatch = await bcrypt.compare(password, user.password);
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) throw new UnauthorizedException('用户名或密码错误');
     return user;
   }
@@ -32,6 +32,7 @@ export class AuthService {
       user: {
         id: user.id,
         username: user.username,
+        displayName: user.displayName || user.username,
         email: user.email,
         role: user.role,
         enterpriseId: user.enterpriseId,
@@ -44,6 +45,7 @@ export class AuthService {
       username: string;
       password: string;
       email: string;
+      displayName?: string;
       phone?: string;
       role: UserRole;
       enterpriseId?: string;
@@ -53,8 +55,9 @@ export class AuthService {
     const user = await this.prisma.user.create({
       data: {
         username: data.username,
-        password: hashedPassword,
+        passwordHash: hashedPassword,
         email: data.email,
+        displayName: data.displayName || data.username,
         phone: data.phone,
         role: data.role,
         enterpriseId: data.enterpriseId,
@@ -64,6 +67,7 @@ export class AuthService {
       id: user.id,
       username: user.username,
       email: user.email,
+      displayName: user.displayName,
       role: user.role,
     };
   }

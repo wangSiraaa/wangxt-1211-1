@@ -42,15 +42,18 @@ function Content() {
     if (!username) return;
     const password = prompt(`请输入密码（默认: 123456）：`, '123456');
     if (!password) return;
+    const email = prompt(`请输入邮箱（默认: ${username}@carbon-park.com）：`, `${username}@carbon-park.com`);
+    if (!email) return;
     try {
       await api.post('/auth/register', {
         username,
         password,
+        email,
         displayName: `${entName} 填报员`,
         role: 'ENTERPRISE',
         enterpriseId: entId,
       });
-      alert(`账号创建成功！\n用户名：${username}\n密码：${password}\n企业：${entName}`);
+      alert(`账号创建成功！\n用户名：${username}\n密码：${password}\n邮箱：${email}\n企业：${entName}`);
     } catch (e: any) {
       alert(e.message);
     }

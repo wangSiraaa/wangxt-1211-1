@@ -1,4 +1,4 @@
-import { PrismaClient, UserRole, AuditAction } from '@prisma/client';
+import { PrismaClient, UserRole, AuditAction, Prisma, QuotaOperationType, VerificationStatus, ReportStatus, EnergyType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -17,6 +17,9 @@ async function main() {
         industry: '钢铁行业',
         contact: '张厂长',
         phone: '13800000001',
+        contactPerson: '张厂长',
+        contactPhone: '13800000001',
+        address: '江苏省苏州市工业园区钢铁大道1号',
       },
     }),
     prisma.enterprise.upsert({
@@ -28,6 +31,9 @@ async function main() {
         industry: '化工行业',
         contact: '李经理',
         phone: '13800000002',
+        contactPerson: '李经理',
+        contactPhone: '13800000002',
+        address: '上海市浦东新区化工园区2号',
       },
     }),
     prisma.enterprise.upsert({
@@ -39,6 +45,9 @@ async function main() {
         industry: '建材行业',
         contact: '王总',
         phone: '13800000003',
+        contactPerson: '王总',
+        contactPhone: '13800000003',
+        address: '浙江省杭州市余杭区建材路3号',
       },
     }),
   ]);
@@ -54,6 +63,7 @@ async function main() {
       create: {
         username: 'admin',
         passwordHash: pwd,
+        email: 'admin@carbon-park.com',
         displayName: '园区管理员',
         role: UserRole.ADMIN,
       },
@@ -64,6 +74,7 @@ async function main() {
       create: {
         username: 'verifier',
         passwordHash: pwd,
+        email: 'verifier@carbon-park.com',
         displayName: '第三方核证员 陈工',
         role: UserRole.VERIFIER,
       },
@@ -74,6 +85,7 @@ async function main() {
       create: {
         username: 'enterprise',
         passwordHash: pwd,
+        email: 'ent001@carbon-park.com',
         displayName: '华东钢铁 填报员',
         role: UserRole.ENTERPRISE,
         enterpriseId: enterprises[0].id,
@@ -83,34 +95,32 @@ async function main() {
   console.log(`✅ 创建 ${users.length} 个用户账号（密码均为 123456）`);
 
   // 3. 初始化排放因子（参考 GB/T 32151 系列及 IPCC）
-  const factors = await Promise.all([
-    prisma.emissionFactor.upsert({
-      where: { energyType_unit_effectiveYear: { energyType: 'COAL', unit: '吨', effectiveYear: 2024 } },
-      update: { isActive: true },
-      create: { energyType: 'COAL', unit: '吨', factorValue: 2.6617, factorUnit: 'tCO₂e/t', source: 'GB/T 32151.1-2015', effectiveYear: 2024, isActive: true },
-    }),
-    prisma.emissionFactor.upsert({
-      where: { energyType_unit_effectiveYear: { energyType: 'OIL', unit: '吨', effectiveYear: 2024 } },
-      update: { isActive: true },
-      create: { energyType: 'OIL', unit: '吨', factorValue: 3.1680, factorUnit: 'tCO₂e/t', source: 'GB/T 32151.1-2015', effectiveYear: 2024, isActive: true },
-    }),
-    prisma.emissionFactor.upsert({
-      where: { energyType_unit_effectiveYear: { energyType: 'NATURAL_GAS', unit: '万m³', effectiveYear: 2024 } },
-      update: { isActive: true },
-      create: { energyType: 'NATURAL_GAS', unit: '万m³', factorValue: 21.622, factorUnit: 'tCO₂e/万m³', source: 'GB/T 32151.1-2015', effectiveYear: 2024, isActive: true },
-    }),
-    prisma.emissionFactor.upsert({
-      where: { energyType_unit_effectiveYear: { energyType: 'ELECTRICITY', unit: 'MWh', effectiveYear: 2024 } },
-      update: { isActive: true },
-      create: { energyType: 'ELECTRICITY', unit: 'MWh', factorValue: 0.5810, factorUnit: 'tCO₂e/MWh', source: '全国电网平均排放因子 2022', effectiveYear: 2024, isActive: true },
-    }),
-    prisma.emissionFactor.upsert({
-      where: { energyType_unit_effectiveYear: { energyType: 'STEAM', unit: '吨', effectiveYear: 2024 } },
-      update: { isActive: true },
-      create: { energyType: 'STEAM', unit: '吨', factorValue: 0.1100, factorUnit: 'tCO₂e/t', source: 'GB/T 32151.9-2015', effectiveYear: 2024, isActive: true },
-    }),
-  ]);
-  console.log(`✅ 初始化 ${factors.length} 个排放因子`);
+  const factorData = [
+    { energyType: 'COAL', unit: '吨', factorValue: 2.6617, factorUnit: 'tCO₂e/t', source: 'GB/T 32151.1-2015', effectiveYear: 2024, isActive: true },
+    { energyType: 'OIL', unit: '吨', factorValue: 3.1680, factorUnit: 'tCO₂e/t', source: 'GB/T 32151.1-2015', effectiveYear: 2024, isActive: true },
+    { energyType: 'NATURAL_GAS', unit: '万m³', factorValue: 21.622, factorUnit: 'tCO₂e/万m³', source: 'GB/T 32151.1-2015', effectiveYear: 2024, isActive: true },
+    { energyType: 'ELECTRICITY', unit: 'MWh', factorValue: 0.5810, factorUnit: 'tCO₂e/MWh', source: '全国电网平均排放因子 2022', effectiveYear: 2024, isActive: true },
+    { energyType: 'STEAM', unit: '吨', factorValue: 0.1100, factorUnit: 'tCO₂e/t', source: 'GB/T 32151.9-2015', effectiveYear: 2024, isActive: true },
+  ];
+  for (const fd of factorData) {
+    const existing = await prisma.emissionFactor.findUnique({
+      where: { energyType: fd.energyType as EnergyType },
+    });
+    if (!existing) {
+      await prisma.emissionFactor.create({
+        data: {
+          energyType: fd.energyType as EnergyType,
+          unit: fd.unit,
+          factorValue: new Prisma.Decimal(fd.factorValue),
+          factorUnit: fd.factorUnit,
+          source: fd.source,
+          effectiveYear: fd.effectiveYear,
+          isActive: fd.isActive,
+        },
+      });
+    }
+  }
+  console.log(`✅ 初始化 ${factorData.length} 个排放因子`);
 
   // 4. 为 ENT001 生成 2024 年前 6 个月的模拟填报数据
   const demoYear = 2024;
@@ -118,6 +128,7 @@ async function main() {
   const energyFactorMap: Record<string, number> = {
     COAL: 2.6617, ELECTRICITY: 0.5810, NATURAL_GAS: 21.622,
   };
+  const enterpriseUser = users[2];
 
   let demoReportsCreated = 0;
   for (let month = 1; month <= 6; month++) {
@@ -128,36 +139,51 @@ async function main() {
       { type: 'ELECTRICITY', value: 80000 + seed * 50 + Math.random() * 5000, unit: 'MWh' },
       { type: 'NATURAL_GAS', value: 45 + seed * 0.2 + Math.random() * 10, unit: '万m³' },
     ];
-    let totalEmission = 0;
+    let totalEmission = new Prisma.Decimal(0);
     const ecInputs = consumptions.map((c) => {
       const emission = c.value * energyFactorMap[c.type];
-      totalEmission += emission;
+      totalEmission = totalEmission.add(new Prisma.Decimal(emission));
       return {
         enterpriseId: demoEnterprise.id,
         year: demoYear,
         month,
-        energyType: c.type,
-        consumptionAmount: c.value,
+        energyType: c.type as EnergyType,
+        quantity: new Prisma.Decimal(c.value),
         unit: c.unit,
-        emission,
+        factorValue: new Prisma.Decimal(energyFactorMap[c.type]),
+        emissionAmount: new Prisma.Decimal(emission),
         hasVoucher: month <= 3 || Math.random() > 0.2,
         voucherNo: month <= 5 ? `V-${month}-${c.type}-${seed}` : undefined,
+        submittedAt: new Date(demoYear, month - 1, 15),
+        createdBy: enterpriseUser.id,
       };
     });
     // 创建报告（如果不存在）
     const existingReport = await prisma.emissionReport.findUnique({
       where: { enterpriseId_year_month: { enterpriseId: demoEnterprise.id, year: demoYear, month } },
     });
+    const status: ReportStatus = month <= 4 ? ReportStatus.SUBMITTED : ReportStatus.DRAFT;
+    const verificationStatus: VerificationStatus = month <= 3
+      ? VerificationStatus.VERIFIED
+      : month === 4
+      ? VerificationStatus.PENDING
+      : VerificationStatus.NOT_STARTED;
     if (!existingReport) {
       await prisma.emissionReport.create({
         data: {
           enterpriseId: demoEnterprise.id,
           year: demoYear,
           month,
-          status: month <= 4 ? 'SUBMITTED' : 'DRAFT',
-          verificationStatus: month <= 3 ? 'VERIFIED' : month === 4 ? 'PENDING' : 'NOT_STARTED',
+          status,
+          verificationStatus,
           totalEmission,
-          ...(month <= 3 ? { isLocked: true, verifiedAt: new Date(demoYear, month - 1, 28), verifiedEmission: totalEmission + month * 10 - 50 } : {}),
+          submittedAt: month <= 4 ? new Date(demoYear, month - 1, 20) : undefined,
+          ...(month <= 3 ? {
+            isLocked: true,
+            lockedAt: new Date(demoYear, month - 1, 28),
+            verifiedAt: new Date(demoYear, month - 1, 28),
+            verifiedEmission: totalEmission.add(new Prisma.Decimal(month * 10 - 50)),
+          } : {}),
         },
       });
     }
@@ -183,8 +209,10 @@ async function main() {
           year: demoYear,
           month,
           productName: '热轧钢板',
-          outputQuantity: 50000 + seed * 200 + Math.random() * 5000,
+          quantity: new Prisma.Decimal(50000 + seed * 200 + Math.random() * 5000),
           unit: '吨',
+          submittedAt: new Date(demoYear, month - 1, 15),
+          createdBy: enterpriseUser.id,
         },
       });
     }
@@ -207,25 +235,25 @@ async function main() {
         data: {
           enterpriseId: q.ent.id,
           year: 2024,
-          totalAllocation: q.total,
-          initialAmount: q.total,
-          usedAmount: q.used,
-          balance: q.total - q.used,
+          totalAllocation: new Prisma.Decimal(q.total),
+          initialAmount: new Prisma.Decimal(q.total),
+          usedAmount: new Prisma.Decimal(q.used),
+          balance: new Prisma.Decimal(q.total - q.used),
           operations: {
             create: [
               {
-                operationType: 'ALLOCATION',
-                amount: q.total,
-                balanceBefore: 0,
-                balanceAfter: q.total,
+                operationType: QuotaOperationType.ALLOCATION,
+                amount: new Prisma.Decimal(q.total),
+                balanceBefore: new Prisma.Decimal(0),
+                balanceAfter: new Prisma.Decimal(q.total),
                 operatorId: users[0].id,
                 remark: `初始化${demoYear}年度配额`,
               },
               {
-                operationType: 'DEDUCTION',
-                amount: q.used,
-                balanceBefore: q.total,
-                balanceAfter: q.total - q.used,
+                operationType: QuotaOperationType.DEDUCTION,
+                amount: new Prisma.Decimal(q.used),
+                balanceBefore: new Prisma.Decimal(q.total),
+                balanceAfter: new Prisma.Decimal(q.total - q.used),
                 operatorId: users[0].id,
                 remark: '截至目前履约清缴',
               },

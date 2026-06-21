@@ -15,6 +15,21 @@ export interface AuditLogData {
   userAgent?: string;
 }
 
+export interface AuditLogWithChanges {
+  id: string;
+  userId: string;
+  user?: { id: string; username: string; displayName?: string | null; role: string };
+  action: AuditAction;
+  entityType: string;
+  entityId: string;
+  description: string | null;
+  detail: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: Date;
+  changes: { field: string; oldValue: unknown; newValue: unknown }[];
+}
+
 @Injectable()
 export class AuditLogService {
   constructor(private readonly prisma: PrismaService) {}
@@ -52,28 +67,73 @@ export class AuditLogService {
     return this.prisma.auditLog.createMany({ data });
   }
 
+  private aggregateChanges(rows: any[]): AuditLogWithChanges[] {
+    const groups = new Map<string, AuditLogWithChanges>();
+    for (const row of rows) {
+      const key = `${row.userId}|${row.action}|${row.entityType}|${row.entityId}|${row.createdAt.getTime()}`;
+      let existing = groups.get(key);
+      if (!existing) {
+        existing = {
+          id: row.id,
+          userId: row.userId,
+          user: row.user,
+          action: row.action,
+          entityType: row.entityType,
+          entityId: row.entityId,
+          description: row.detail,
+          detail: row.detail,
+          ipAddress: row.ipAddress,
+          userAgent: row.userAgent,
+          createdAt: row.createdAt,
+          changes: [],
+        };
+        groups.set(key, existing);
+      }
+      if (row.fieldName) {
+        existing.changes.push({
+          field: row.fieldName,
+          oldValue: row.oldValue ? this.safeParse(row.oldValue) : null,
+          newValue: row.newValue ? this.safeParse(row.newValue) : null,
+        });
+      }
+    }
+    return Array.from(groups.values()).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  private safeParse(s: string): unknown {
+    try {
+      return JSON.parse(s);
+    } catch {
+      return s;
+    }
+  }
+
   async findByEntity(entityType: string, entityId: string) {
-    return this.prisma.auditLog.findMany({
+    const rows = await this.prisma.auditLog.findMany({
       where: { entityType, entityId },
       orderBy: { createdAt: 'desc' },
       include: {
-        user: { select: { id: true, username: true, role: true } },
+        user: { select: { id: true, username: true, displayName: true, role: true } },
       },
     });
+    return this.aggregateChanges(rows);
   }
 
   async findByUser(userId: string, page = 1, pageSize = 20) {
     const skip = (page - 1) * pageSize;
-    const [items, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.prisma.auditLog.findMany({
         where: { userId },
         skip,
         take: pageSize,
         orderBy: { createdAt: 'desc' },
+        include: {
+          user: { select: { id: true, username: true, displayName: true, role: true } },
+        },
       }),
       this.prisma.auditLog.count({ where: { userId } }),
     ]);
-    return { items, total, page, pageSize };
+    return { items: this.aggregateChanges(rows), total, page, pageSize };
   }
 
   async findAll(query: {
@@ -94,19 +154,19 @@ export class AuditLogService {
       if (filters.startDate) where.createdAt.gte = filters.startDate;
       if (filters.endDate) where.createdAt.lte = filters.endDate;
     }
-    const [items, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.prisma.auditLog.findMany({
         where,
         skip,
         take: pageSize,
         orderBy: { createdAt: 'desc' },
         include: {
-          user: { select: { id: true, username: true, role: true } },
+          user: { select: { id: true, username: true, displayName: true, role: true } },
         },
       }),
       this.prisma.auditLog.count({ where }),
     ]);
-    return { items, total, page, pageSize };
+    return { items: this.aggregateChanges(rows), total, page, pageSize };
   }
 
   logChanges<T extends Record<string, unknown>>(
@@ -147,7 +207,9 @@ export class AuditLogService {
     }
     if (oldEntity && newEntity) {
       const allKeys = new Set([...Object.keys(oldEntity), ...Object.keys(newEntity)]);
+      const excludedKeys = new Set(['updatedAt', 'createdAt']);
       for (const key of allKeys) {
+        if (excludedKeys.has(key)) continue;
         const oldVal = oldEntity[key];
         const newVal = newEntity[key];
         if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {

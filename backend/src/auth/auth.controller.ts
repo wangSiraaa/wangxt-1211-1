@@ -13,6 +13,7 @@ class RegisterDto {
   username: string;
   password: string;
   email: string;
+  displayName?: string;
   phone?: string;
   role: UserRole;
   enterpriseId?: string;
