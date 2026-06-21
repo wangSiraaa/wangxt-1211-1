@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { VerificationStatus, ReportStatus, AuditAction, Prisma } from '@prisma/client';
+import { VerificationStatus, ReportStatus, AuditAction, ReportReturnStatus, Prisma } from '@prisma/client';
 
 @Injectable()
 export class EmissionReportService {
@@ -28,25 +28,68 @@ export class EmissionReportService {
     if (report.isLocked) {
       throw new BadRequestException('该报告已锁定，无法提交');
     }
+
+    const isResubmit =
+      report.verificationStatus === VerificationStatus.RETURNED;
+    const now = new Date();
+
     const updated = await this.prisma.emissionReport.update({
       where: { id: report.id },
       data: {
         status: ReportStatus.SUBMITTED,
         verificationStatus: VerificationStatus.PENDING,
-        submittedAt: new Date(),
+        submittedAt: now,
       },
     });
     await this.prisma.energyConsumption.updateMany({
       where: { enterpriseId, year, month },
-      data: { submittedAt: new Date() },
+      data: { submittedAt: now },
     });
-    await this.auditLogService.create({
-      userId,
-      action: AuditAction.SUBMIT,
-      entityType: 'EmissionReport',
-      entityId: report.id,
-      detail: `提交${year}年${month}月排放报告`,
-    });
+
+    const activeReturn = isResubmit
+      ? await this.prisma.reportReturn.findFirst({
+          where: { reportId: report.id, status: ReportReturnStatus.RETURNED },
+          orderBy: { returnedAt: 'desc' },
+        })
+      : null;
+
+    if (activeReturn) {
+      await this.prisma.$transaction([
+        this.prisma.reportReturn.update({
+          where: { id: activeReturn.id },
+          data: {
+            resubmittedAt: now,
+            resubmittedBy: userId,
+            status: ReportReturnStatus.RESUBMITTED,
+          },
+        }),
+        this.prisma.verificationTask.updateMany({
+          where: { reportId: report.id, status: VerificationStatus.RETURNED },
+          data: { status: VerificationStatus.IN_PROGRESS },
+        }),
+      ]);
+      await this.auditLogService.create({
+        userId,
+        action: AuditAction.RESUBMIT,
+        entityType: 'EmissionReport',
+        entityId: report.id,
+        detail: `再次提交${year}年${month}月排放报告，补传凭证后重新进入核证（再次提交时间：${now.toISOString()}）`,
+        newValue: {
+          reportReturnId: activeReturn.id,
+          returnReason: activeReturn.reason,
+          returnedBy: activeReturn.returnedBy,
+          resubmittedAt: now,
+        },
+      });
+    } else {
+      await this.auditLogService.create({
+        userId,
+        action: AuditAction.SUBMIT,
+        entityType: 'EmissionReport',
+        entityId: report.id,
+        detail: `提交${year}年${month}月排放报告`,
+      });
+    }
     return updated;
   }
 
@@ -68,6 +111,15 @@ export class EmissionReportService {
           include: {
             verifier: { select: { id: true, username: true, email: true } },
             evidences: true,
+          },
+        },
+        reportReturns: {
+          orderBy: { returnedAt: 'desc' },
+          include: {
+            returnedByUser: {
+              select: { id: true, username: true, displayName: true },
+            },
+            items: true,
           },
         },
       },

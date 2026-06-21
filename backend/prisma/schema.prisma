@@ -31,6 +31,7 @@ enum VerificationStatus {
   NOT_STARTED
   PENDING
   IN_PROGRESS
+  RETURNED
   VERIFIED
   REJECTED
   ADJUSTED
@@ -54,6 +55,13 @@ enum AuditAction {
   ADJUST
   LOCK
   CARRY_OVER
+  RETURN
+  RESUBMIT
+}
+
+enum ReportReturnStatus {
+  RETURNED
+  RESUBMITTED
 }
 
 model User {
@@ -71,6 +79,7 @@ model User {
 
   verifications VerificationTask[] @relation("Verifier")
   auditLogs     AuditLog[]
+  reportReturns ReportReturn[]    @relation("ReturnedBy")
 }
 
 model Enterprise {
@@ -174,6 +183,7 @@ model EmissionReport {
 
   verificationTasks VerificationTask[]
   adjustments       VerificationAdjustment[]
+  reportReturns     ReportReturn[]
 
   @@unique([enterpriseId, year, month])
   @@index([enterpriseId, year, month])
@@ -229,6 +239,40 @@ model VerificationAdjustment {
   reason        String
   adjustedBy    String
   adjustedAt    DateTime       @default(now())
+}
+
+model ReportReturn {
+  id             String             @id @default(cuid())
+  reportId       String
+  report         EmissionReport     @relation(fields: [reportId], references: [id])
+  taskId         String?
+  returnedBy     String
+  returnedByUser User               @relation("ReturnedBy", fields: [returnedBy], references: [id])
+  reason         String
+  returnedAt     DateTime           @default(now())
+  resubmittedAt  DateTime?
+  resubmittedBy  String?
+  status         ReportReturnStatus @default(RETURNED)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  items ReportReturnItem[]
+
+  @@index([reportId])
+  @@index([status])
+}
+
+model ReportReturnItem {
+  id           String       @id @default(cuid())
+  returnId     String
+  reportReturn ReportReturn @relation(fields: [returnId], references: [id])
+  evidenceId   String?
+  voucherNo    String?
+  energyType   EnergyType?
+  itemName     String
+  remark       String?
+
+  @@index([returnId])
 }
 
 model Baseline {

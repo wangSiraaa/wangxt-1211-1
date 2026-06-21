@@ -15,6 +15,8 @@ const actionMap: Record<string, { label: string; color: string }> = {
   ADJUST: { label: '调整', color: 'bg-amber-100 text-amber-700' },
   LOCK: { label: '锁定', color: 'bg-gray-700 text-white' },
   CARRY_OVER: { label: '结转', color: 'bg-teal-100 text-teal-700' },
+  RETURN: { label: '退回', color: 'bg-orange-100 text-orange-700' },
+  RESUBMIT: { label: '再次提交', color: 'bg-emerald-100 text-emerald-700' },
 };
 
 const entityMap: Record<string, string> = {
@@ -25,6 +27,7 @@ const entityMap: Record<string, string> = {
   VerificationTask: '核证任务',
   VerificationEvidence: '凭证抽样',
   VerificationAdjustment: '核证调整',
+  ReportReturn: '退回记录',
   Baseline: '基线',
   Quota: '配额',
   QuotaOperation: '配额操作',

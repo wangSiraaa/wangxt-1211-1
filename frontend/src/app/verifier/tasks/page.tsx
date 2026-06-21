@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation';
 const statusMap: Record<string, { label: string; cls: string }> = {
   PENDING: { label: '待创建任务', cls: 'bg-amber-100 text-amber-700' },
   IN_PROGRESS: { label: '核证中', cls: 'bg-blue-100 text-blue-700' },
+  RETURNED: { label: '已退回企业补传', cls: 'bg-orange-100 text-orange-700' },
   VERIFIED: { label: '已核证', cls: 'bg-green-100 text-green-700' },
   REJECTED: { label: '已驳回', cls: 'bg-red-100 text-red-700' },
   ADJUSTED: { label: '已调整', cls: 'bg-purple-100 text-purple-700' },
@@ -161,7 +162,7 @@ function Content() {
                         <td className="text-xs text-gray-500">{dayjs(t.createdAt).format('YYYY-MM-DD')}</td>
                         <td>
                           <button className="text-sm text-carbon-600 hover:underline" onClick={() => router.push(`/verifier/tasks/${t.id}`)}>
-                            {t.status === 'IN_PROGRESS' ? '进入核证 →' : '查看详情 →'}
+                            {t.status === 'IN_PROGRESS' || t.status === 'RETURNED' ? '进入核证 →' : '查看详情 →'}
                           </button>
                         </td>
                       </tr>

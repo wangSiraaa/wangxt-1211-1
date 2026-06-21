@@ -387,6 +387,121 @@ export class VerificationService {
     return { success: true };
   }
 
+  async returnReport(
+    taskId: string,
+    verifierId: string,
+    data: {
+      reason: string;
+      items?: Array<{
+        evidenceId?: string;
+        voucherNo?: string;
+        energyType?: EnergyType;
+        itemName: string;
+        remark?: string;
+      }>;
+    },
+  ) {
+    const task = await this.prisma.verificationTask.findUnique({
+      where: { id: taskId },
+      include: {
+        report: { include: { enterprise: true } },
+        evidences: true,
+      },
+    });
+    if (!task) throw new NotFoundException('核证任务不存在');
+    if (task.verifierId !== verifierId) {
+      throw new ForbiddenException('无权操作该核证任务');
+    }
+    if (task.report.isLocked) {
+      throw new BadRequestException('报告已锁定，无法退回');
+    }
+    if (task.status === VerificationStatus.VERIFIED) {
+      throw new BadRequestException('核证任务已完成，无法退回');
+    }
+
+    let items = data.items;
+    if (!items || items.length === 0) {
+      items = task.evidences
+        .filter((e) => !e.isComplete)
+        .map((e) => ({
+          evidenceId: e.id,
+          voucherNo: e.voucherNo,
+          energyType: e.energyType || undefined,
+          itemName: e.energyType
+            ? `${e.energyType} 凭证 ${e.voucherNo}`
+            : `凭证 ${e.voucherNo}`,
+          remark: e.remark || undefined,
+        }));
+    }
+    if (items.length === 0) {
+      throw new BadRequestException(
+        '未指定退回的缺失项，且当前抽样无缺失凭证可退回',
+      );
+    }
+
+    const reportReturn = await this.prisma.$transaction(async (tx) => {
+      const ret = await tx.reportReturn.create({
+        data: {
+          reportId: task.reportId,
+          taskId,
+          returnedBy: verifierId,
+          reason: data.reason,
+          items: {
+            create: items!.map((it) => ({
+              evidenceId: it.evidenceId ?? null,
+              voucherNo: it.voucherNo ?? null,
+              energyType: it.energyType ?? null,
+              itemName: it.itemName,
+              remark: it.remark ?? null,
+            })),
+          },
+        },
+        include: { items: true },
+      });
+      await tx.verificationTask.update({
+        where: { id: taskId },
+        data: { status: VerificationStatus.RETURNED },
+      });
+      await tx.emissionReport.update({
+        where: { id: task.reportId },
+        data: { verificationStatus: VerificationStatus.RETURNED },
+      });
+      return ret;
+    });
+
+    await this.auditLogService.create({
+      userId: verifierId,
+      action: AuditAction.RETURN,
+      entityType: 'EmissionReport',
+      entityId: task.reportId,
+      detail: `退回企业补传：${data.reason}（共 ${items.length} 项缺失凭证）`,
+      newValue: {
+        reportReturnId: reportReturn.id,
+        returnedAt: reportReturn.returnedAt,
+        items: items.map((it) => ({
+          voucherNo: it.voucherNo,
+          energyType: it.energyType,
+          itemName: it.itemName,
+        })),
+      },
+    });
+
+    return reportReturn;
+  }
+
+  async findReturnsByReport(reportId: string) {
+    return this.prisma.reportReturn.findMany({
+      where: { reportId },
+      orderBy: { returnedAt: 'desc' },
+      include: {
+        returnedByUser: {
+          select: { id: true, username: true, displayName: true },
+        },
+        items: true,
+      },
+    });
+  }
+
   private mulberry32(a: number) {
     return function () {
       let t = (a += 0x6d2b79f5);

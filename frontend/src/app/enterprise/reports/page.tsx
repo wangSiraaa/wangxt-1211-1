@@ -6,10 +6,12 @@ import Navbar from '../../components/Navbar';
 import api from '../../lib/api';
 import { useAuth } from '../../store/auth';
 import dayjs from 'dayjs';
+import { useRouter } from 'next/navigation';
 
 const statusMap: Record<string, { label: string; cls: string }> = {
   PENDING: { label: '待核证', cls: 'bg-amber-100 text-amber-700' },
   IN_PROGRESS: { label: '核证中', cls: 'bg-blue-100 text-blue-700' },
+  RETURNED: { label: '退回补传', cls: 'bg-orange-100 text-orange-700' },
   VERIFIED: { label: '已核证', cls: 'bg-green-100 text-green-700' },
   REJECTED: { label: '已驳回', cls: 'bg-red-100 text-red-700' },
   ADJUSTED: { label: '已调整', cls: 'bg-purple-100 text-purple-700' },
@@ -26,6 +28,7 @@ export default function ReportsPage() {
 
 function Content() {
   const { user } = useAuth();
+  const router = useRouter();
   const currentYear = dayjs().year();
   const [year, setYear] = useState(currentYear);
   const [data, setData] = useState<any>(null);
@@ -102,8 +105,8 @@ function Content() {
         <div className="card">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold">{year}年{selectedMonth}月报告详情</h2>
-            <span className={`badge ${reportDetail.isLocked ? 'bg-amber-100 text-amber-700' : 'bg-green-50 text-green-700'}`}>
-              {reportDetail.isLocked ? '🔒 已锁定' : '可编辑'}
+            <span className={`badge ${reportDetail.isLocked ? 'bg-amber-100 text-amber-700' : reportDetail.verificationStatus === 'RETURNED' ? 'bg-orange-100 text-orange-700' : 'bg-green-50 text-green-700'}`}>
+              {reportDetail.isLocked ? '🔒 已锁定' : reportDetail.verificationStatus === 'RETURNED' ? '↩ 待补传凭证' : '可编辑'}
             </span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -111,6 +114,48 @@ function Content() {
             <div className="bg-gray-50 rounded-lg p-4"><p className="text-sm text-gray-500">核证调整后</p><p className="text-xl font-bold text-purple-700">{reportDetail.adjustedEmission ? Number(reportDetail.adjustedEmission).toFixed(2) : '—'}</p></div>
             <div className="bg-gray-50 rounded-lg p-4"><p className="text-sm text-gray-500">最终核证量</p><p className="text-xl font-bold text-carbon-700">{reportDetail.verifiedEmission ? Number(reportDetail.verifiedEmission).toFixed(2) : '—'}</p></div>
           </div>
+
+          {reportDetail.reportReturns?.length > 0 && (
+            <div className="mb-6 space-y-3">
+              {reportDetail.reportReturns.map((r: any) => (
+                <div key={r.id} className={`rounded-lg border p-4 ${r.status === 'RESUBMITTED' ? 'border-green-200 bg-green-50/50' : 'border-orange-200 bg-orange-50/50'}`}>
+                  <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className={r.status === 'RESUBMITTED' ? 'badge bg-green-100 text-green-700' : 'badge bg-orange-100 text-orange-700'}>
+                        {r.status === 'RESUBMITTED' ? '已补交' : '待补传'}
+                      </span>
+                      <span className="text-sm text-gray-600">
+                        核证员退回：{r.returnedByUser?.displayName || r.returnedByUser?.username || '—'}
+                      </span>
+                      <span className="text-xs text-gray-400">{dayjs(r.returnedAt).format('YYYY-MM-DD HH:mm')}</span>
+                    </div>
+                    {r.resubmittedAt && (
+                      <span className="text-xs text-green-600">已再次提交：{dayjs(r.resubmittedAt).format('YYYY-MM-DD HH:mm')}</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-700 mb-2">
+                    <span className="text-gray-500">退回说明：</span>{r.reason}
+                  </p>
+                  <div className="text-xs text-gray-600 mb-3">
+                    <span className="text-gray-500">需补传凭证：</span>
+                    {(r.items || []).map((it: any, idx: number) => (
+                      <span key={it.id || idx} className="inline-block bg-white border border-gray-200 px-2 py-0.5 rounded mr-1 mb-1">
+                        {it.energyType ? `${it.energyType} ` : ''}{it.itemName}{it.voucherNo ? `（${it.voucherNo}）` : ''}
+                      </span>
+                    ))}
+                  </div>
+                  {r.status === 'RETURNED' && (
+                    <div className="flex items-center gap-3">
+                      <button className="btn-primary !py-1.5 text-sm" onClick={() => router.push('/enterprise/energy')}>
+                        前往补传凭证 →
+                      </button>
+                      <span className="text-xs text-gray-500">补传完成后，在能源填报页重新提交本月份报告即可</span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
           {reportDetail.verificationTasks?.length > 0 && (
             <div>

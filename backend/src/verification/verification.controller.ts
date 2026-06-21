@@ -71,10 +71,26 @@ export class VerificationController {
     return this.service.rejectTask(taskId, req.user.id, body.reason);
   }
 
+  @Post('task/:taskId/return')
+  @Roles('ADMIN', 'VERIFIER')
+  async returnReport(
+    @Param('taskId') taskId: string,
+    @Body() body: { reason: string; items?: any[] },
+    @Request() req: any,
+  ) {
+    return this.service.returnReport(taskId, req.user.id, body);
+  }
+
   @Get('report/:reportId/tasks')
   @Roles('ADMIN', 'VERIFIER', 'ENTERPRISE')
   async findTasksByReport(@Param('reportId') reportId: string) {
     return this.service.findTasksByReport(reportId);
+  }
+
+  @Get('report/:reportId/returns')
+  @Roles('ADMIN', 'VERIFIER', 'ENTERPRISE')
+  async findReturnsByReport(@Param('reportId') reportId: string) {
+    return this.service.findReturnsByReport(reportId);
   }
 
   @Get('my-tasks')

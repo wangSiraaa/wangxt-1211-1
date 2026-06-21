@@ -35,6 +35,9 @@ function Content() {
   const [adjustForm, setAdjustForm] = useState({
     energyType: '', itemName: '', originalValue: '', adjustValue: '', reason: '',
   });
+  const [showReturn, setShowReturn] = useState(false);
+  const [returnReason, setReturnReason] = useState('');
+  const [returnSelected, setReturnSelected] = useState<Set<string>>(new Set());
 
   const load = async () => {
     setLoading(true);
@@ -118,6 +121,55 @@ function Content() {
     }
   };
 
+  const openReturn = () => {
+    const incomplete = evidences.filter((e: any) => !e.isComplete);
+    setReturnSelected(new Set(incomplete.map((e: any) => e.id)));
+    setReturnReason('');
+    setShowReturn(true);
+  };
+
+  const toggleReturnItem = (id: string) => {
+    const next = new Set(returnSelected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setReturnSelected(next);
+  };
+
+  const onReturn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!returnReason.trim()) {
+      setError('请填写退回说明');
+      return;
+    }
+    const selected = evidences.filter(
+      (ev: any) => !ev.isComplete && returnSelected.has(ev.id),
+    );
+    if (selected.length === 0) {
+      setError('请至少选择一项缺失凭证');
+      return;
+    }
+    try {
+      await api.post(`/verification/task/${taskId}/return`, {
+        reason: returnReason.trim(),
+        items: selected.map((ev: any) => ({
+          evidenceId: ev.id,
+          voucherNo: ev.voucherNo,
+          energyType: ev.energyType || undefined,
+          itemName: ev.energyType
+            ? `${energyLabels[ev.energyType] || ev.energyType} 凭证 ${ev.voucherNo}`
+            : `凭证 ${ev.voucherNo}`,
+          remark: ev.remark || undefined,
+        })),
+      });
+      alert('已退回缺失凭证给企业，等待企业补传后重新提交');
+      setShowReturn(false);
+      router.push('/verifier/tasks');
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
   const evidences = task?.reportFull?.verificationTasks?.[0]?.evidences || [];
   const adjustments = task?.reportFull?.adjustments || [];
   const isCompleted = task?.status === 'VERIFIED' || task?.status === 'REJECTED';
@@ -136,8 +188,13 @@ function Content() {
           </p>
         </div>
         {!isCompleted && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <button className="btn-secondary" onClick={onReject}>驳回报告</button>
+            {evidences.some((e: any) => !e.isComplete) && (
+              <button className="btn-secondary !bg-amber-100 !text-amber-800 !border-amber-300 hover:!bg-amber-200" onClick={openReturn}>
+                ↩ 退回缺失项给企业补传
+              </button>
+            )}
             <button className="btn-primary" onClick={onComplete} disabled={evidences.length === 0}>
               ✓ 完成核证并锁定报告
             </button>
@@ -275,6 +332,46 @@ function Content() {
         </div>
       )}
 
+      {(task?.reportFull?.reportReturns || []).length > 0 && (
+        <div className="card">
+          <h2 className="text-lg font-semibold mb-4">退回与补交记录</h2>
+          <div className="space-y-3">
+            {(task?.reportFull?.reportReturns || []).map((r: any) => (
+              <div key={r.id} className="border border-gray-200 rounded-lg p-3">
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className={r.status === 'RESUBMITTED' ? 'badge bg-green-100 text-green-700' : 'badge bg-amber-100 text-amber-700'}>
+                      {r.status === 'RESUBMITTED' ? '已补交' : '待补交'}
+                    </span>
+                    <span className="text-sm text-gray-600">
+                      退回人：{r.returnedByUser?.displayName || r.returnedByUser?.username || '—'}
+                    </span>
+                    <span className="text-xs text-gray-400">
+                      {dayjs(r.returnedAt).format('YYYY-MM-DD HH:mm')}
+                    </span>
+                  </div>
+                  {r.resubmittedAt && (
+                    <span className="text-xs text-green-600">
+                      企业再次提交：{dayjs(r.resubmittedAt).format('YYYY-MM-DD HH:mm')}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-gray-700 mb-2">
+                  <span className="text-gray-500">退回说明：</span>{r.reason}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {(r.items || []).map((it: any, idx: number) => (
+                    <span key={it.id || idx} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">
+                      {it.energyType ? `${energyLabels[it.energyType] || it.energyType} ` : ''}{it.itemName}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {showAdjust && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowAdjust(null)}>
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
@@ -306,6 +403,47 @@ function Content() {
               <div className="flex gap-2 justify-end pt-2">
                 <button type="button" className="btn-secondary" onClick={() => setShowAdjust(null)}>取消</button>
                 <button type="submit" className="btn-primary">确认调整</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showReturn && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowReturn(false)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold mb-1">退回缺失凭证给企业补传</h3>
+            <p className="text-sm text-gray-500 mb-4">勾选需要退回的缺失凭证，企业补传后再次提交时将记录补交时间。</p>
+            <form onSubmit={onReturn} className="space-y-4">
+              <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-60 overflow-auto">
+                {evidences.filter((e: any) => !e.isComplete).map((e: any) => (
+                  <label key={e.id} className="flex items-center gap-3 p-3 cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="checkbox"
+                      checked={returnSelected.has(e.id)}
+                      onChange={() => toggleReturnItem(e.id)}
+                      className="h-4 w-4 rounded border-gray-300 text-carbon-600"
+                    />
+                    <div className="flex-1 text-sm">
+                      <div className="font-medium">{energyLabels[e.energyType || 'OTHER']} {e.energyType || ''} · {e.voucherNo}</div>
+                      {e.remark && <div className="text-xs text-gray-400">{e.remark}</div>}
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <div>
+                <label className="label">退回说明（原因）</label>
+                <textarea
+                  className="input min-h-[90px]"
+                  value={returnReason}
+                  onChange={(e) => setReturnReason(e.target.value)}
+                  placeholder="说明缺失凭证的具体情况，便于企业针对性补传"
+                  required
+                />
+              </div>
+              <div className="flex gap-2 justify-end pt-2">
+                <button type="button" className="btn-secondary" onClick={() => setShowReturn(false)}>取消</button>
+                <button type="submit" className="btn-primary">确认退回</button>
               </div>
             </form>
           </div>
